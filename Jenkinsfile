@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        NODE_VERSION = '22.21.0'
-    }
-
     stages {
 
         stage('Checkout') {
@@ -16,62 +12,32 @@ pipeline {
         stage('Setup .env') {
             steps {
                 script {
-                    // Set your frontend API endpoint for local testing
-                    writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=http://13.48.78.229:3000/api/candidates'
-                    echo ".env created with VITE_CANDIDATES_ENDPOINT"
+                    writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=http://127.0.0.1:8000/api/candidates'
+                    echo ".env created"
                 }
             }
         }
 
-        stage('Install dependencies') {
+        stage('Install Dependencies') {
             steps {
-                sh 'node -v'
-                sh 'npm --version'
-
-                script {
-                    if (fileExists('package-lock.json')) {
-                        sh 'npm ci'
-                    } else {
-                        sh 'npm install'
-                    }
-                }
-
-                // Ensure Vitest is installed locally
+                sh 'npm install'
                 sh 'npm install --save-dev vitest'
             }
         }
 
         stage('Run Tests') {
             steps {
-                script {
-                    if (fileExists('./node_modules/.bin/vitest')) {
-                        echo "✅ Running tests with local vitest..."
-                        sh 'npx vitest --run'
-                    } else {
-                        error "❌ Vitest not found! Make sure it is installed."
-                    }
-                }
+                sh 'npx vitest --run'
             }
         }
     }
 
     post {
         success {
-            echo '🎉 Frontend pipeline completed successfully!'
-            mail to: 'your_email@example.com',
-                 subject: 'Job Portal Frontend - Build Success',
-                 body: 'The Jenkins build succeeded 🎉.'
+            echo '✅ Frontend build and tests succeeded'
         }
-
         failure {
-            echo '❌ Frontend pipeline failed. Check logs!'
-            mail to: 'your_email@example.com',
-                 subject: 'Job Portal Frontend - Build Failed ❌',
-                 body: 'The Jenkins build failed. Please check logs for details.'
-        }
-
-        always {
-            echo "📌 Pipeline run finished at ${new Date()}"
+            echo '❌ Frontend pipeline failed'
         }
     }
 }
