@@ -16,7 +16,7 @@ pipeline {
         stage('Setup .env') {
             steps {
                 script {
-                    // Set your frontend API endpoint
+                    // Set your frontend API endpoint for local testing
                     writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=http://13.48.78.229:3000/api/candidates'
                     echo ".env created with VITE_CANDIDATES_ENDPOINT"
                 }
@@ -49,34 +49,6 @@ pipeline {
                         sh 'npx vitest --run'
                     } else {
                         error "❌ Vitest not found! Make sure it is installed."
-                    }
-                }
-            }
-        }
-
-        stage('Trigger Deployment API') {
-            steps {
-                script {
-                    def deployToken = ''
-                    try {
-                        deployToken = credentials('DEPLOY_TOKEN')
-                    } catch(Exception e) {
-                        echo "⚠️ DEPLOY_TOKEN credential not found. Skipping deployment API call."
-                    }
-
-                    if (deployToken) {
-                        echo "🚀 Triggering deployment..."
-                        sh """
-                        curl -fS -X POST http://13.48.78.229:3000/api/application/deploy \
-                        -H "accept: application/json" \
-                        -H "Content-Type: application/json" \
-                        -H "Authorization: Bearer ${deployToken}" \
-                        --data-binary '{"applicationId":"f8Cq0JwIpIz7gBQ4se_ML"}' \
-                        -w '\\nHTTP %{http_code}\\n'
-                        """
-                        echo "✅ Deployment API called successfully."
-                    } else {
-                        echo "❌ Deployment skipped due to missing token."
                     }
                 }
             }
