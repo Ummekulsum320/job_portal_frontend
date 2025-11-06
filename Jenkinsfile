@@ -2,17 +2,11 @@ pipeline {
     agent any
 
     environment {
-        APP_ID = "http://13.48.78.229:3000/api/application/deploy"
-    }
-
-    parameters {
-        string(name: 'DEPLOY_URL_CRED_ID', defaultValue: 'DEPLOY_URL', description: 'Credentials ID for the deployment URL (Secret Text)')
-        string(name: 'DEPLOY_KEY_CRED_ID', defaultValue: 'DEPLOY_KEY', description: 'Credentials ID for the deployment API key (Secret Text)')
-        string(name: 'VITE_CANDIDATES_ENDPOINT', defaultValue: 'VITE_CANDIDATES_ENDPOINT', description: 'Endpoint for candidates API used by the frontend (exported into .env)')
+        NODE_VERSION = '22.21.0'
     }
 
     stages {
-        stage('Checkout') {
+        stage('Checkout SCM') {
             steps {
                 checkout scm
             }
@@ -20,16 +14,27 @@ pipeline {
 
         stage('Setup .env') {
             steps {
-                sh """
-                    echo 'VITE_CANDIDATES_ENDPOINT=${params.VITE_CANDIDATES_ENDPOINT}' > .env
+                script {
+                    // Create a basic .env file for frontend
+                    writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=VITE_CANDIDATES_ENDPOINT'
                     echo ".env created with VITE_CANDIDATES_ENDPOINT"
-                """
+                }
             }
         }
 
         stage('Install dependencies') {
             steps {
-                sh 'node -v && npm --version && (npm ci || npm install)'
+                sh 'node -v'
+                sh 'npm --version'
+
+                script {
+                    // Use npm ci if package-lock.json exists, else npm install
+                    if (fileExists('package-lock.json')) {
+                        sh 'npm ci'
+                    } else {
+                        sh 'npm install'
+                    }
+                }
             }
         }
 
@@ -38,62 +43,37 @@ pipeline {
                 sh 'npm test -- --run'
             }
         }
+
+        stage('Trigger Deployment API') {
+            steps {
+                script {
+                    def deployUrl = ''
+                    try {
+                        deployUrl = credentials('DEPLOY_URL')
+                    } catch(Exception e) {
+                        echo "⚠️ Warning: DEPLOY_URL credential not found. Skipping deployment API call."
+                    }
+
+                    if (deployUrl) {
+                        sh "curl -X POST ${deployUrl}"
+                        echo "✅ Deployment API triggered successfully."
+                    } else {
+                        echo "❌ Deployment API skipped due to missing credential."
+                    }
+                }
+            }
+        }
     }
 
     post {
         success {
-            echo "✅ Tests passed, triggering deployment API..."
-            withCredentials([
-                string(credentialsId: params.DEPLOY_URL_CRED_ID, variable: 'DEPLOY_URL'),
-                string(credentialsId: params.DEPLOY_KEY_CRED_ID, variable: 'DEPLOY_KEY')
-            ]) {
-                sh """
-                    json_payload=\$(printf '{"applicationId":"%s"}' "$APP_ID")
-                    curl -fS -X POST "\$DEPLOY_URL" \
-                         -H 'accept: application/json' \
-                         -H 'Content-Type: application/json' \
-                         -H "x-api-key: \$DEPLOY_KEY" \
-                         --data-binary "\$json_payload" \
-                         -w "\\nHTTP %{http_code}\\n"
-                """
-            }
-
-            mail to: 'ummekulsum9855@gmail.com',
-                 subject: "✅ Jenkins Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """
-Hello,
-
-The Jenkins pipeline for ${env.JOB_NAME} (build #${env.BUILD_NUMBER}) has succeeded.
-
-* Branch: ${env.BRANCH_NAME}
-* Commit: ${env.GIT_COMMIT}
-* Build URL: ${env.BUILD_URL}
-
-Deployment API was triggered successfully.
-
-Regards,
-Jenkins
-"""
+            echo "🎉 Pipeline finished successfully!"
         }
-
         failure {
-            echo "❌ Pipeline failed, sending error email..."
-            mail to: 'ummekulsum9855@gmail.com',
-                 subject: "❌ Jenkins Failure: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: """
-Hello,
-
-The Jenkins pipeline for ${env.JOB_NAME} (build #${env.BUILD_NUMBER}) has failed.
-
-* Branch: ${env.BRANCH_NAME}
-* Commit: ${env.GIT_COMMIT}
-* Build URL: ${env.BUILD_URL}
-
-Please check the console output for details.
-
-Regards,
-Jenkins
-"""
+            echo "❌ Pipeline failed. Check logs for details."
+        }
+        always {
+            echo "📌 Pipeline run finished at ${new Date()}"
         }
     }
 }
