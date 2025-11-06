@@ -2,70 +2,74 @@ pipeline {
     agent any
 
     environment {
+        APP_ID = "YOUR-APPLICATION-ID"
         DEPLOY_URL = "http://13.48.78.229:3000/api/application/deploy"
-        NODE_ENV = "production"
     }
 
     stages {
-
-        stage('Checkout SCM') {
+        stage('Checkout') {
             steps {
-                checkout([$class: 'GitSCM',
-                    branches: [[name: '*/main']],
-                    userRemoteConfigs: [[url: 'https://github.com/Ummekulsum320/job_portal_frontend']]
-                ])
+                checkout scm
             }
         }
 
         stage('Setup .env') {
             steps {
-                script {
-                    writeFile file: '.env', text: '''
-VITE_CANDIDATES_ENDPOINT=http://13.48.78.229:3000/api/application
-                    '''.stripIndent()
+                sh """
+                    echo 'VITE_CANDIDATES_ENDPOINT=http://13.48.78.229:3000/api/candidates' > .env
                     echo ".env created with VITE_CANDIDATES_ENDPOINT"
-                }
+                """
             }
         }
 
         stage('Install dependencies') {
             steps {
-                sh 'node -v'
-                sh 'npm --version'
-                sh 'npm ci'
+                sh 'node -v && npm --version'
+                // install all dependencies including vitest
+                sh 'npm install'
+                // install vitest globally (just in case)
+                sh 'npm install -g vitest'
             }
         }
 
         stage('Run tests') {
             steps {
-                sh 'npm test -- --run'
+                // run tests safely
+                sh '''
+                    if npm test -- --run; then
+                      echo "✅ Tests passed"
+                    else
+                      echo "⚠ Tests failed"
+                      exit 1
+                    fi
+                '''
             }
         }
 
         stage('Trigger Deployment API') {
+            when {
+                expression { currentBuild.resultIsBetterOrEqualTo('SUCCESS') }
+            }
             steps {
-                script {
-                    echo "Triggering deployment at ${DEPLOY_URL}"
-                    // Using curl properly quoted to avoid syntax errors
-                    sh """
-                        curl -X POST "${DEPLOY_URL}" \
-                        -H "Content-Type: application/json" \
-                        -d '{"status":"success","triggered_by":"jenkins"}'
-                    """
-                }
+                sh '''
+                    echo "🚀 Triggering deployment..."
+                    json_payload=$(printf '{"applicationId":"%s"}' "$APP_ID")
+                    curl -fS -X POST "$DEPLOY_URL" \
+                        -H 'accept: application/json' \
+                        -H 'Content-Type: application/json' \
+                        --data-binary "$json_payload" \
+                        -w "\\nHTTP %{http_code}\\n"
+                '''
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment pipeline completed successfully."
+            echo "✅ Pipeline succeeded and deployment triggered!"
         }
         failure {
-            echo "❌ Pipeline failed. Check logs for details."
-        }
-        always {
-            echo "📌 Pipeline run finished at ${new Date()}"
+            echo "❌ Pipeline failed. Please check the logs."
         }
     }
 }
