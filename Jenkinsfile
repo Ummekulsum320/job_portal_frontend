@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        APP_ID = "YOUR-APPLICATION-ID"
+        APP_ID = "http://13.48.78.229:3000/api/application/deploy"
     }
 
     parameters {
