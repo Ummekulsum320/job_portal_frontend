@@ -2,21 +2,27 @@ pipeline {
     agent any
 
     environment {
-        NODE_VERSION = '22.21.0'
+        DEPLOY_URL = "http://13.48.78.229:3000/api/application/deploy"
+        NODE_ENV = "production"
     }
 
     stages {
+
         stage('Checkout SCM') {
             steps {
-                checkout scm
+                checkout([$class: 'GitSCM',
+                    branches: [[name: '*/main']],
+                    userRemoteConfigs: [[url: 'https://github.com/Ummekulsum320/job_portal_frontend']]
+                ])
             }
         }
 
         stage('Setup .env') {
             steps {
                 script {
-                    // Create a basic .env file for frontend
-                    writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=VITE_CANDIDATES_ENDPOINT'
+                    writeFile file: '.env', text: '''
+VITE_CANDIDATES_ENDPOINT=http://13.48.78.229:3000/api/application
+                    '''.stripIndent()
                     echo ".env created with VITE_CANDIDATES_ENDPOINT"
                 }
             }
@@ -26,15 +32,7 @@ pipeline {
             steps {
                 sh 'node -v'
                 sh 'npm --version'
-
-                script {
-                    // Use npm ci if package-lock.json exists, else npm install
-                    if (fileExists('package-lock.json')) {
-                        sh 'npm ci'
-                    } else {
-                        sh 'npm install'
-                    }
-                }
+                sh 'npm ci'
             }
         }
 
@@ -47,19 +45,13 @@ pipeline {
         stage('Trigger Deployment API') {
             steps {
                 script {
-                    def deployUrl = ''
-                    try {
-                        deployUrl = credentials('DEPLOY_URL')
-                    } catch(Exception e) {
-                        echo "⚠️ Warning: DEPLOY_URL credential not found. Skipping deployment API call."
-                    }
-
-                    if (deployUrl) {
-                        sh "curl -X POST ${deployUrl}"
-                        echo "✅ Deployment API triggered successfully."
-                    } else {
-                        echo "❌ Deployment API skipped due to missing credential."
-                    }
+                    echo "Triggering deployment at ${DEPLOY_URL}"
+                    // Using curl properly quoted to avoid syntax errors
+                    sh """
+                        curl -X POST "${DEPLOY_URL}" \
+                        -H "Content-Type: application/json" \
+                        -d '{"status":"success","triggered_by":"jenkins"}'
+                    """
                 }
             }
         }
@@ -67,7 +59,7 @@ pipeline {
 
     post {
         success {
-            echo "🎉 Pipeline finished successfully!"
+            echo "✅ Deployment pipeline completed successfully."
         }
         failure {
             echo "❌ Pipeline failed. Check logs for details."
