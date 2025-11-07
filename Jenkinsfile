@@ -1,43 +1,109 @@
 pipeline {
     agent any
 
-    stages {
+    environment {
+        APP_ID = "CLcxoYtaNJDjqxFIcxCvk"
+    }
 
+    parameters {
+        string(
+            name: 'DEPLOY_URL_CRED_ID',
+            defaultValue: 'DEPLOY_URL',
+            description: 'Credentials ID for the deployment URL (Secret Text)'
+        )
+        string(
+            name: 'DEPLOY_KEY_CRED_ID',
+            defaultValue: 'DEPLOY_KEY',
+            description: 'Credentials ID for the deployment API key (Secret Text)'
+        )
+        string(
+            name: 'VITE_CANDIDATES_ENDPOINT',
+            defaultValue: 'VITE_CANDIDATES_ENDPOINT',
+            description: 'Endpoint for candidates API used by the frontend (exported into .env)'
+        )
+    }
+
+    stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/Ummekulsum320/job_portal_frontend'
+                checkout scm
             }
         }
 
         stage('Setup .env') {
             steps {
-                script {
-                    writeFile file: '.env', text: 'VITE_CANDIDATES_ENDPOINT=http://127.0.0.1:8000/api/candidates'
-                    echo ".env created"
-                }
+                sh """
+                    echo 'VITE_CANDIDATES_ENDPOINT=${params.VITE_CANDIDATES_ENDPOINT}' > .env
+                    echo ".env created with VITE_CANDIDATES_ENDPOINT"
+                """
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Install dependencies') {
             steps {
-                sh 'npm install'
-                sh 'npm install --save-dev vitest'
+                sh 'node -v && npm --version && (npm ci || npm install)'
             }
         }
 
-        stage('Run Tests') {
+        stage('Run tests') {
             steps {
-                sh 'npx vitest --run'
+                sh 'npm test -- --run'
             }
         }
     }
 
     post {
         success {
-            echo '✅ Frontend build and tests succeeded'
+            echo "✅ Tests passed, triggering deployment API..."
+            withCredentials([
+                string(credentialsId: params.DEPLOY_URL_CRED_ID, variable: 'DEPLOY_URL'),
+                string(credentialsId: params.DEPLOY_KEY_CRED_ID, variable: 'DEPLOY_KEY')
+            ]) {
+                sh '''
+                    json_payload=$(printf '{"applicationId":"%s"}' "$APP_ID")
+                    curl -fS -X POST "$DEPLOY_URL" \
+                        -H 'accept: application/json' \
+                        -H 'Content-Type: application/json' \
+                        -H "x-api-key: $DEPLOY_KEY" \
+                        --data-binary "$json_payload" \
+                        -w "\\nHTTP %{http_code}\\n"
+                '''
+            }
+
+            mail to: 'xaioene@gmail.com',
+                 subject: "Jenkins Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Hello,
+
+The Jenkins pipeline for ${env.JOB_NAME} (build #${env.BUILD_NUMBER}) has succeeded.
+
+* Branch: ${env.BRANCH_NAME}
+* Commit: ${env.GIT_COMMIT}
+* Build URL: ${env.BUILD_URL}
+
+Deployment API was triggered successfully.
+
+Regards,
+Jenkins
+"""
         }
+
         failure {
-            echo '❌ Frontend pipeline failed'
+            echo "❌ Pipeline failed, sending error email..."
+            mail to: 'xaioene@gmail.com',
+                 subject: "Jenkins Failure: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                 body: """Hello,
+
+The Jenkins pipeline for ${env.JOB_NAME} (build #${env.BUILD_NUMBER}) has failed.
+
+* Branch: ${env.BRANCH_NAME}
+* Commit: ${env.GIT_COMMIT}
+* Build URL: ${env.BUILD_URL}
+
+Please check the console output for details.
+
+Regards,
+Jenkins
+"""
         }
     }
 }
